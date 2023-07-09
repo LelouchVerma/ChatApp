@@ -1,0 +1,151 @@
+{% extends 'core/base.html' %}
+
+{% load static chatextras %}
+
+{% block title %}{{ room.name }} | {% endblock %}
+
+{% block content %}
+<div class="p-10 lg:p-16 mt-24 text-center">
+    <h1 class="text-3xl lg:text-6xl text-white/80">{{ room.name }}</h1>
+</div>
+
+<div class="lg:w-2/4 mx-4 lg:mx-auto p-4 backdrop-blur bg-black/30 rounded-xl">
+    <div class="chat-messages space-y-3" id="chat-messages">
+        
+        {% for message in room.messages.all %}
+            {% if message.sent_by == request.user %}
+                <div class="flex w-full mt-2 space-x-3 max-w-md ml-auto justify-end items-baseline">
+                    <div>
+                        <div class="bg-sky-600 text-white px-2 py-1 rounded-l-lg rounded-br-lg">
+                            <p class="text-base">{{message.content}}</p>
+                        </div>
+                        <p class="w-full mt-1 text-xs text-stone-900 font-light leading-none text-right place-content-end">{{message.time_added|convert_to_24hr}}</p>
+                    </div>
+
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-400 text-center font-semibold text-white pt-2 mr-auto">{{message.sent_by.username|initials}}</div>
+                </div>
+            {% else %}
+                <div class="flex w-full mt-2 space-x-3 max-w-md mr-auto">
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-400 text-center font-semibold text-white pt-2 ml-2">{{message.sent_by.username|initials}}</div>
+
+                    <div>
+                        <div class="bg-sky-900 text-white px-2 py-1 rounded-r-lg rounded-bl-lg">
+                            <p  class="text-start text-xs text-purple-500 font-bold">{{message.sent_by.username}}</p>
+                            <p class="text-base">{{message.content}}</p>
+                        </div>
+                        
+                        <p class="w-full mt-1 text-xs text-stone-900 font-light leading-none text-right place-content-end">{{message.time_added|convert_to_24hr}} </p>
+                    </div>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+</div>
+
+<div class="lg:w-2/4 mt-6 mx-4 lg:mx-auto p-4 backdrop-blur bg-black/30 rounded-xl">
+    <form method="post" action="." class="flex">
+        <input type="text" name="content" class="bg-black/0 flex-1 mr-3 font-semibold text-white text-base focus:outline-none" placeholder="Your message..." id="chat-message-input">
+
+        <button class="px-3 py-3 rounded-xl text-white font-semibold bg-sky-600 hover:bg-sky-700" id="chat-message-submit">Send</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ room.slug|json_script:"json-roomname" }}
+{{ request.user.username|json_script:"json-username" }}
+
+<script>
+    const roomName = JSON.parse(document.getElementById('json-roomname').textContent);
+    const userName = JSON.parse(document.getElementById('json-username').textContent);
+    var messages = JSON.parse(document.getElementById('messages'))
+
+    const chatSocket = new WebSocket(
+        'ws://'
+        + window.location.host
+        + '/ws/'
+        + roomName
+        + '/'
+    );
+
+    function getInitials(str) {
+        const words = str.split(' ');
+        const initials = words.map(word => word.charAt(0).toUpperCase());
+        return initials.join('');
+    }
+
+    chatSocket.onmessage = function(e) {
+        console.log('onmessage')
+
+        const data = JSON.parse(e.data);
+
+        if (data.message) {
+            if (userName == data.username) {
+                document.querySelector('#chat-messages').innerHTML += `
+                <div class="flex w-full mt-2 space-x-3 max-w-md ml-auto justify-end items-baseline">
+                    <div>
+                        <div class="bg-sky-600 text-white px-2 py-1 rounded-l-lg rounded-br-lg">
+                            <p class="text-base">${data.message}</p>
+                        </div>
+                        <p class="w-full mt-1 text-xs text-stone-900 font-light leading-none text-right place-content-end">${data.created_at}</p>
+                    </div>
+
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-400 text-center font-semibold text-white pt-2">${getInitials(data.username)}</div>
+                </div>
+                `
+            } else {
+                document.querySelector('#chat-messages').innerHTML += `
+                <div class="flex w-full mt-2 space-x-3 max-w-md">
+                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-400 text-center font-semibold text-white pt-2 ml-2">${getInitials(data.username)}</div>
+
+                    <div>
+                        <div class="bg-sky-900 text-white px-2 py-1 rounded-r-lg rounded-bl-lg">
+                            <p  class="text-start text-purple-500 text-xs font-bold">${data.username}</p>
+                            <p class="text-base">${data.message}</p>
+                        </div>
+                        
+                        <p class="w-full mt-1 text-xs text-stone-900 font-light leading-none text-right place-content-end">${data.created_at}</p>
+                    </div>
+                </div>
+                `
+            }
+
+            scrollToBottom();
+        } else {
+            alert('The message was empty!');
+        }
+    }
+
+    chatSocket.onclose = function(e) {
+        console.log('onclose')
+    }
+
+    //
+
+    document.querySelector('#chat-message-submit').onclick = function(e){
+        e.preventDefault();
+
+        const messageInputDom = document.querySelector('#chat-message-input');
+        const message = messageInputDom.value;
+
+        chatSocket.send(JSON.stringify({
+            'message': message,
+            'username': userName,
+            'room': roomName
+        }));
+
+        messageInputDom.value = '';
+
+        return false;
+    }
+
+    //
+
+    function scrollToBottom() {
+        const objDiv = document.querySelector('#chat-messages');
+        objDiv.scrollTop = objDiv.scrollHeight;
+    }
+
+    scrollToBottom();
+</script>
+{% endblock %}
